@@ -9,6 +9,8 @@ dependencies = [
     "flash-attn>=2.8.1",
     "pillow>=11.3.0",
     "pymupdf>=1.26.3",
+    "qwen-vl-utils>=0.0.11",
+    "torchvision>=0.22.1",
     "transformers>=4.53.1",
     "trl>=0.19.1",
 ]
