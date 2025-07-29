@@ -58,9 +58,42 @@ class CollateFn:
         return full_batch
 
 
+class ComputeF1:
+    def __init__(self, tokenizer):
+        self.tokenizer = tokenizer
+        self.refs_model = SchemaPrompter().schema_model
+        self.f1 = F1()
+
+    def __call__(self, output) -> dict:
+        labels = [self.tokenizer.decode(ids[ids != -100], skip_special_tokens=True) for ids in output.label_ids]
+        # labels = self.tokenizer.batch_decode(output.label_ids, skip_special_tokens=True)
+        gold_references = []
+        for label in labels:
+            idx = label.find("{")
+            refs = self.refs_model.model_validate_json(label[idx:])
+            gold_references.append(refs.references)
+
+        predictions = output.predictions[0].argmax(axis=-1)
+        predictions = self.tokenizer.batch_decode(predictions, skip_special_tokens=True)
+        out_references = []
+        for pred in predictions:
+            idx = pred.find("{")
+            try:
+                refs = self.refs_model.model_validate_json(pred[idx:])
+            except Exception:
+                out_references.append([])
+            else:
+                out_references.append(refs.references)
+
+        f1 = self.f1.compute_macro_average(out_references, gold_references, show_progress=False)
+
+        return {"f1": f1}
+
+
 def train(
     train_data: List[Example],
     valid_data: List[Example],
+    input_dir: Path,
     is_mock_model: bool = False,
     use_flashattn: bool = True,
 ):
@@ -122,14 +155,14 @@ def train(
     # Configure training arguments
     training_args = SFTConfig(
         output_dir="test_finetune",  # Directory to save the model
-        num_train_epochs=2,  # Number of training epochs
+        num_train_epochs=1,  # Number of training epochs
         per_device_train_batch_size=1,  # Batch size for training
         per_device_eval_batch_size=1,  # Batch size for evaluation
-        # gradient_accumulation_steps=1,  # Steps to accumulate gradients
+        gradient_accumulation_steps=1,  # Steps to accumulate gradients
         learning_rate=1e-5,  # Learning rate for training
         lr_scheduler_type="constant",  # Type of learning rate scheduler
-        logging_steps=1,  # Steps interval for logging
-        eval_steps=2,  # Steps interval for evaluation
+        logging_steps=5,  # Steps interval for logging
+        eval_steps=10,  # Steps interval for evaluation
         eval_strategy="steps",  # Strategy for evaluation
         # save_strategy="steps",  # Strategy for saving the model
         # save_steps=20,  # Steps interval for saving
@@ -141,7 +174,8 @@ def train(
         gradient_checkpointing_kwargs={
             "use_reentrant": False
         },  # Options for gradient checkpointing
-        max_seq_length=128,  # 1024  # Maximum sequence length for input
+        max_seq_length=1024,  # 1024  # Maximum sequence length for input
+        eval_accumulation_steps=1,
     )
 
     # allow for proper loading of images during collation
@@ -159,47 +193,10 @@ def train(
     # )
     # get_peft_model(model, peft_config).print_trainable_parameters()
 
-    class ComputeF1:
-        def __init__(self, tokenizer):
-            self.tokenizer = tokenizer
-            self.refs_model = SchemaPrompter().schema_model
-            self.f1 = F1()
-
-        def __call__(self, output) -> dict:
-            labels = [self.tokenizer.decode(ids[ids != -100], skip_special_tokens=True) for ids in output.label_ids]
-            # labels = self.tokenizer.batch_decode(output.label_ids, skip_special_tokens=True)
-            gold_references = []
-            for label in labels:
-                idx = label.find("{")
-                refs = self.refs_model.model_validate_json(label[idx:])
-                gold_references.append(refs.references)
-
-            predictions = output.predictions[0].argmax(axis=-1)
-            predictions = self.tokenizer.batch_decode(predictions, skip_special_tokens=True)
-            out_references = []
-            for pred in predictions:
-                idx = pred.find("{")
-                try:
-                    refs = self.refs_model.model_validate_json(pred[idx:])
-                except Exception:
-                    out_references.append([])
-                else:
-                    out_references.append(refs.references)
-
-            f1 = self.f1.compute_macro_average(out_references, gold_references, show_progress=False)
-
-            return {"f1": f1}
-
-    def check(*args, **kwargs):
-        print(args)
-        print(kwargs)
-        return {}
-
-
     trainer = SFTTrainer(
         model=model,
         args=training_args,
-        data_collator=CollateFn(processor=processor),
+        data_collator=CollateFn(processor=processor, input_dir=input_dir),
         train_dataset=train_data,
         eval_dataset=valid_data,
         processing_class=processor.tokenizer,
@@ -208,7 +205,6 @@ def train(
     )
 
     trainer.train()
-    trainer.evaluate
 
 
 if __name__ == "__main__":
@@ -217,6 +213,7 @@ if __name__ == "__main__":
 
     data_path = Path("./data/data.json")
     data = Data.model_validate_json(data_path.read_text())
-    train_data, valid_data = data.examples[:1], data.examples[2:3]
+    train_data, valid_data = data.examples[:-200], data.examples[-200:]
 
-    train(train_data, valid_data, is_mock_model=True, use_flashattn=False)
+    train(train_data, valid_data, Path("/u/dcfidalgo/projects/cupido/data/PLOS_1000"), use_flashattn=False)#, is_mock_model=True, use_flashattn=False)
+
