@@ -73,8 +73,8 @@ class ComputeF1:
             refs = self.refs_model.model_validate_json(label[idx:])
             gold_references.append(refs.references)
 
-        predictions = output.predictions[0].argmax(axis=-1)
-        predictions = self.tokenizer.batch_decode(predictions, skip_special_tokens=True)
+        # predictions = output.predictions[0].argmax(axis=-1)
+        predictions = self.tokenizer.batch_decode(output.predictions, skip_special_tokens=True)
         out_references = []
         for pred in predictions:
             idx = pred.find("{")
@@ -158,11 +158,11 @@ def train(
         num_train_epochs=1,  # Number of training epochs
         per_device_train_batch_size=1,  # Batch size for training
         per_device_eval_batch_size=1,  # Batch size for evaluation
-        gradient_accumulation_steps=1,  # Steps to accumulate gradients
+        #gradient_accumulation_steps=1,  # Steps to accumulate gradients
         learning_rate=1e-5,  # Learning rate for training
         lr_scheduler_type="constant",  # Type of learning rate scheduler
-        logging_steps=5,  # Steps interval for logging
-        eval_steps=10,  # Steps interval for evaluation
+        logging_steps=1,  # Steps interval for logging
+        eval_steps=1,  # Steps interval for evaluation
         eval_strategy="steps",  # Strategy for evaluation
         # save_strategy="steps",  # Strategy for saving the model
         # save_steps=20,  # Steps interval for saving
@@ -182,16 +182,20 @@ def train(
     training_args.remove_unused_columns = False
     training_args.dataset_kwargs = {"skip_prepare_dataset": True}
 
-    # from peft import LoraConfig, get_peft_model
-    # peft_config = LoraConfig(
-    #     lora_alpha=16,  # Scaling factor for LoRA
-    #     lora_dropout=0.05,  # Dropout rate for LoRA layers
-    #     r=8,  # Rank of the low-rank decomposition
-    #     bias="none",  # Bias handling in LoRA layers
-    #     target_modules=["q_proj", "v_proj"],  # Target modules for LoRA
-    #     task_type="CAUSAL_LM",  # Task type for the model
-    # )
+    from peft import LoraConfig, get_peft_model
+    peft_config = LoraConfig(
+        lora_alpha=16,  # Scaling factor for LoRA
+        lora_dropout=0.05,  # Dropout rate for LoRA layers
+        r=8,  # Rank of the low-rank decomposition
+        bias="none",  # Bias handling in LoRA layers
+        target_modules=["q_proj", "v_proj"],  # Target modules for LoRA
+        task_type="CAUSAL_LM",  # Task type for the model
+    )
     # get_peft_model(model, peft_config).print_trainable_parameters()
+
+    def preprocess_logits_for_metrics(logits, labels):
+        # This function is used to preprocess logits for metrics computation
+        return logits[0].argmax(axis=-1)
 
     trainer = SFTTrainer(
         model=model,
@@ -201,7 +205,8 @@ def train(
         eval_dataset=valid_data,
         processing_class=processor.tokenizer,
         compute_metrics=ComputeF1(processor.tokenizer),
-        # peft_config=peft_config,
+        peft_config=peft_config,
+        preprocess_logits_for_metrics=preprocess_logits_for_metrics
     )
 
     trainer.train()
@@ -213,7 +218,9 @@ if __name__ == "__main__":
 
     data_path = Path("./data/data.json")
     data = Data.model_validate_json(data_path.read_text())
-    train_data, valid_data = data.examples[:-200], data.examples[-200:]
+    train_data, valid_data = data.examples[:-200], data.examples[-200:-199]
 
-    train(train_data, valid_data, Path("/u/dcfidalgo/projects/cupido/data/PLOS_1000"), use_flashattn=False)#, is_mock_model=True, use_flashattn=False)
+    # pdfs_dir = Path("/u/dcfidalgo/projects/cupido/data/PLOS_1000")
+    pdfs_dir = Path("/home/david/mpcdf/mplhlt/cupido/data/PLOS_1000")
+    train(train_data, valid_data, pdfs_dir, is_mock_model=True, use_flashattn=False)
 
