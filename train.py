@@ -7,12 +7,24 @@ from qwen_vl_utils import process_vision_info
 import tempfile
 from pathlib import Path
 from llamore import SchemaPrompter, F1
+from transformers.integrations import WandbCallback
+import wandb
 
 
 class CollateFn:
-    def __init__(self, processor, input_dir: Path | str = "/home/david/mpcdf/mplhlt/cupido/data/PLOS_1000"):
+    def __init__(
+        self,
+        processor,
+        input_dir: Path | str = "/home/david/mpcdf/mplhlt/cupido/data/PLOS_1000",
+        dpi: int = 100,
+        include_template: bool = True,
+        exclude_defaults: bool = True,
+    ):
         self.processor = processor
         self.input_dir = Path(input_dir)
+        self.dpi = dpi
+        self.include_template = include_template
+        self.exclude_defaults = exclude_defaults
 
     def __call__(self, examples: List[Example]) -> Dict:
         # examples = [Example.model_validate_json(example) for example in examples_dict]
@@ -21,7 +33,12 @@ class CollateFn:
         with tempfile.TemporaryDirectory() as tmp_dir:
             for example in examples:
                 messages = to_messages(
-                    example, self.input_dir, tmp_dir
+                    example,
+                    self.input_dir,
+                    tmp_dir,
+                    dpi=self.dpi,
+                    include_template=self.include_template,
+                    exclude_defaults=self.exclude_defaults,
                 )
                 message_batch.append(messages)
 
@@ -55,39 +72,52 @@ class CollateFn:
             labels[i, : user_len - 1] = -100
 
         full_batch["labels"] = labels
+
         return full_batch
 
 
-class ComputeF1:
-    def __init__(self, tokenizer):
-        self.tokenizer = tokenizer
+class ComputeF1(WandbCallback):
+    def __init__(self, max_new_tokens: int = 1000):
+        super().__init__()
+        self.max_new_tokens = max_new_tokens
         self.refs_model = SchemaPrompter().schema_model
         self.f1 = F1()
 
-    def __call__(self, output) -> dict:
-        labels = [self.tokenizer.decode(ids[ids != -100], skip_special_tokens=True) for ids in output.label_ids]
-        # labels = self.tokenizer.batch_decode(output.label_ids, skip_special_tokens=True)
-        gold_references = []
-        for label in labels:
-            idx = label.find("{")
-            refs = self.refs_model.model_validate_json(label[idx:])
-            gold_references.append(refs.references)
+    def on_evaluate(self, args, state, control, **kwargs):
+        model, tokenizer = kwargs["model"], kwargs["processing_class"]
 
-        # predictions = output.predictions[0].argmax(axis=-1)
-        predictions = self.tokenizer.batch_decode(output.predictions, skip_special_tokens=True)
-        out_references = []
-        for pred in predictions:
-            idx = pred.find("{")
-            try:
-                refs = self.refs_model.model_validate_json(pred[idx:])
-            except Exception:
-                out_references.append([])
-            else:
-                out_references.append(refs.references)
+        generation_table = wandb.Table(columns=["generation", "label"])
 
-        f1 = self.f1.compute_macro_average(out_references, gold_references, show_progress=False)
+        gold_references, predicted_references = [], []
+        for batch in kwargs["eval_dataloader"]:
+            # TODO: generate batch-wise
+            for input_ids, labels in zip(batch["input_ids"], batch["labels"]):
+                # Generate output
+                idx = (labels != -100).nonzero()[0][0].item()
+                output = model.generate(input_ids[:idx].unsqueeze(0), max_new_tokens=self.max_new_tokens)
+                output = tokenizer.decode(output[0][idx:], skip_special_tokens=True) # Only keep the generated tokens
+                idx = output.find("{")
+                try:
+                    refs = self.refs_model.model_validate_json(output[idx:].strip())
+                except Exception:
+                    references = []
+                else: 
+                    references = refs.references
+                predicted_references.append(references)
 
-        return {"f1": f1}
+                # Get gold references
+                label = tokenizer.decode(labels[labels != -100], skip_special_tokens=True)
+                idx = label.find("{")
+                refs = self.refs_model.model_validate_json(label[idx:].strip())
+                gold_references.append(refs.references)
+
+                generation_table.add_data(output, label)
+
+        f1 = self.f1.compute_macro_average(
+            predicted_references, gold_references, show_progress=False
+        )
+
+        self._wandb.log({"f1": f1, "generation_table": generation_table})
 
 
 def train(
@@ -105,19 +135,19 @@ def train(
         config = AutoConfig.from_pretrained(model_name)
         config.text_config.update(
             {
-                "num_attention_heads": 6,
+                "num_attention_heads": 3,
                 "num_hidden_layers": 1,
-                "head_dim": 8,
-                "hidden_size": 8,
-                "intermediate_size": 32,
+                "head_dim": 4,
+                "hidden_size": 4,
+                "intermediate_size": 4,
             }
         )
         config.vision_config.update(
             {
                 "num_attention_heads": 2,
                 "num_hidden_layers": 2,
-                "intermediate_size": 32,
-                "hidden_size": 32,
+                "intermediate_size": 4,
+                "hidden_size": 4,
             }
         )
 
@@ -151,14 +181,13 @@ def train(
     )
     # print("PARAMETERS:", sum(p.numel() for p in model.parameters())/1e6, "M")
 
-
     # Configure training arguments
     training_args = SFTConfig(
         output_dir="test_finetune",  # Directory to save the model
         num_train_epochs=1,  # Number of training epochs
         per_device_train_batch_size=1,  # Batch size for training
-        per_device_eval_batch_size=1,  # Batch size for evaluation
-        #gradient_accumulation_steps=1,  # Steps to accumulate gradients
+        per_device_eval_batch_size=2,  # Batch size for evaluation
+        # gradient_accumulation_steps=1,  # Steps to accumulate gradients
         learning_rate=1e-5,  # Learning rate for training
         lr_scheduler_type="constant",  # Type of learning rate scheduler
         logging_steps=1,  # Steps interval for logging
@@ -169,44 +198,53 @@ def train(
         bf16=True,  # Use bfloat16 precision
         max_grad_norm=0.3,  # Maximum norm for gradient clipping
         warmup_ratio=0.03,  # Ratio of total steps for warmup
-        report_to="none",  # Reporting tool for tracking metrics
+        report_to="wandb",  # Reporting tool for tracking metrics
         gradient_checkpointing=True,  # Enable gradient checkpointing for memory efficiency
         gradient_checkpointing_kwargs={
             "use_reentrant": False
         },  # Options for gradient checkpointing
-        max_seq_length=1024,  # 1024  # Maximum sequence length for input
-        eval_accumulation_steps=1,
+        # eval_accumulation_steps=1,
     )
 
     # allow for proper loading of images during collation
     training_args.remove_unused_columns = False
     training_args.dataset_kwargs = {"skip_prepare_dataset": True}
 
-    from peft import LoraConfig, get_peft_model
-    peft_config = LoraConfig(
-        lora_alpha=16,  # Scaling factor for LoRA
-        lora_dropout=0.05,  # Dropout rate for LoRA layers
-        r=8,  # Rank of the low-rank decomposition
-        bias="none",  # Bias handling in LoRA layers
-        target_modules=["q_proj", "v_proj"],  # Target modules for LoRA
-        task_type="CAUSAL_LM",  # Task type for the model
-    )
+    # from peft import LoraConfig, get_peft_model
+    # peft_config = LoraConfig(
+    #     lora_alpha=16,  # Scaling factor for LoRA
+    #     lora_dropout=0.05,  # Dropout rate for LoRA layers
+    #     r=8,  # Rank of the low-rank decomposition
+    #     bias="none",  # Bias handling in LoRA layers
+    #     target_modules=["q_proj", "v_proj"],  # Target modules for LoRA
+    #     task_type="CAUSAL_LM",  # Task type for the model
+    # )
     # get_peft_model(model, peft_config).print_trainable_parameters()
 
-    def preprocess_logits_for_metrics(logits, labels):
-        # This function is used to preprocess logits for metrics computation
-        return logits[0].argmax(axis=-1)
+    # def preprocess_logits_for_metrics(logits, labels):
+    #     # This function is used to preprocess logits for metrics computation
+    #     return logits[0].argmax(axis=-1)
+
+    # Create the data collator
+    data_collator = CollateFn(
+        processor=processor,
+        input_dir=input_dir,
+        dpi=100 if not is_mock_model else 1,
+        include_template=True if not is_mock_model else False,
+        exclude_defaults=True,
+    )
 
     trainer = SFTTrainer(
         model=model,
         args=training_args,
-        data_collator=CollateFn(processor=processor, input_dir=input_dir),
+        data_collator=data_collator,
         train_dataset=train_data,
         eval_dataset=valid_data,
         processing_class=processor.tokenizer,
-        compute_metrics=ComputeF1(processor.tokenizer),
-        peft_config=peft_config,
-        preprocess_logits_for_metrics=preprocess_logits_for_metrics
+        # compute_metrics=ComputeF1(processor.tokenizer),
+        # peft_config=peft_config,
+        # preprocess_logits_for_metrics=preprocess_logits_for_metrics
+        callbacks=[ComputeF1()],
     )
 
     trainer.train()
@@ -218,9 +256,10 @@ if __name__ == "__main__":
 
     data_path = Path("./data/data.json")
     data = Data.model_validate_json(data_path.read_text())
-    train_data, valid_data = data.examples[:-200], data.examples[-200:-199]
+    examples = data.examples
+    # examples = [ex for ex in data.examples if ex.refs]
+    train_data, valid_data = data.examples[:2], data.examples[2:4]
 
-    # pdfs_dir = Path("/u/dcfidalgo/projects/cupido/data/PLOS_1000")
+    # # pdfs_dir = Path("/u/dcfidalgo/projects/cupido/data/PLOS_1000")
     pdfs_dir = Path("/home/david/mpcdf/mplhlt/cupido/data/PLOS_1000")
     train(train_data, valid_data, pdfs_dir, is_mock_model=True, use_flashattn=False)
-
