@@ -16,13 +16,22 @@ class Data(BaseModel):
 
 
 def to_messages(
-    example: Example, input_dir: str | Path, tmp_dir: str | Path, indent: int = 4
+    example: Example,
+    input_dir: str | Path,
+    tmp_dir: str | Path,
+    indent: int = 4,
+    dpi: int = 100,
+    include_template: bool = True,
+    exclude_defaults: bool = True,
 ) -> List[dict]:
     input_dir, tmp_dir = Path(input_dir), Path(tmp_dir)
-    image_path = extract_page(example.file, example.page, input_dir, tmp_dir)
+    image_path = extract_page(example.file, example.page, input_dir, tmp_dir, dpi=dpi)
 
     image_placeholder = "<|vision_start|><|image_pad|><|vision_end|>"
-    text = f"""# Template:\n{SchemaPrompter().json_schema}\n#Context:\n{image_placeholder}"""
+    text = ""
+    if include_template:
+        text += f"""# Template:\n{SchemaPrompter().json_schema}\n"""
+    text += f"""#Context:\n{image_placeholder}"""
     image = {"type": "image", "image": f"file://{image_path.absolute()}"}
 
     messages = [
@@ -32,7 +41,7 @@ def to_messages(
     label = (
         SchemaPrompter()
         .schema_model(references=example.refs or [])
-        .model_dump_json(indent=indent)
+        .model_dump_json(indent=indent, exclude_defaults=exclude_defaults)
     )
     messages.append({"role": "assistant", "content": [{"type": "text", "text": label}]})
 
