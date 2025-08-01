@@ -91,30 +91,42 @@ class ComputeF1(WandbCallback):
 
         gold_references, predicted_references = [], []
         total = 25  # len(kwargs["eval_dataloader"])
-        for i, batch in tqdm(enumerate(kwargs["eval_dataloader"]), total=total, leave=False, desc="Generating"):
+        for i, batch in tqdm(
+            enumerate(kwargs["eval_dataloader"]),
+            total=total,
+            leave=False,
+            desc="Generating",
+        ):
             # TODO: generate batch-wise
-            for input_ids, labels in zip(batch["input_ids"], batch["labels"]):
-                # Generate output
-                idx = (labels != -100).nonzero()[0][0].item()
-                with torch.inference_mode():
-                    output = model.generate(input_ids[:idx].unsqueeze(0), max_new_tokens=self.max_new_tokens)
-                output = tokenizer.decode(output[0][idx:], skip_special_tokens=True) # Only keep the generated tokens
-                idx = output.find("{")
-                try:
-                    refs = self.refs_model.model_validate_json(output[idx:].strip())
-                except Exception:
-                    references = []
-                else: 
-                    references = refs.references
-                predicted_references.append(references)
+            if batch["input_ids"].shape[0] > 1:
+                raise ValueError("Batch size > 1 is not supported for generation")
 
-                # Get gold references
-                label = tokenizer.decode(labels[labels != -100], skip_special_tokens=True)
-                idx = label.find("{")
-                refs = self.refs_model.model_validate_json(label[idx:].strip())
-                gold_references.append(refs.references)
+            # Generate output
+            idx = (batch["labels"][0] != -100).nonzero()[0][0].item()
+            batch["input_ids"] = batch["input_ids"][:, idx + 1 :]
+            with torch.inference_mode():
+                output = model.generate(**batch, max_new_tokens=self.max_new_tokens)
+            output = tokenizer.decode(
+                output[0][idx:], skip_special_tokens=True
+            )  # Only keep the generated tokens
+            idx = output.find("{")
+            try:
+                refs = self.refs_model.model_validate_json(output[idx:].strip())
+            except Exception:
+                references = []
+            else:
+                references = refs.references
+            predicted_references.append(references)
 
-                generation_table.add_data(output, label)
+            # Get gold references
+            labels = batch["labels"][0]
+            label = tokenizer.decode(labels[labels != -100], skip_special_tokens=True)
+            idx = label.find("{")
+            refs = self.refs_model.model_validate_json(label[idx:].strip())
+            gold_references.append(refs.references)
+
+            generation_table.add_data(output, label)
+
             if i == 24:
                 break
 
