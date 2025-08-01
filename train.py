@@ -9,6 +9,7 @@ from pathlib import Path
 from llamore import SchemaPrompter, F1
 from transformers.integrations import WandbCallback
 import wandb
+from tqdm.auto import tqdm
 
 
 class CollateFn:
@@ -89,12 +90,14 @@ class ComputeF1(WandbCallback):
         generation_table = wandb.Table(columns=["generation", "label"])
 
         gold_references, predicted_references = [], []
-        for batch in kwargs["eval_dataloader"]:
+        total = 25  # len(kwargs["eval_dataloader"])
+        for i, batch in tqdm(enumerate(kwargs["eval_dataloader"]), total=total, leave=False, desc="Generating"):
             # TODO: generate batch-wise
             for input_ids, labels in zip(batch["input_ids"], batch["labels"]):
                 # Generate output
                 idx = (labels != -100).nonzero()[0][0].item()
-                output = model.generate(input_ids[:idx].unsqueeze(0), max_new_tokens=self.max_new_tokens)
+                with torch.inference_mode():
+                    output = model.generate(input_ids[:idx].unsqueeze(0), max_new_tokens=self.max_new_tokens)
                 output = tokenizer.decode(output[0][idx:], skip_special_tokens=True) # Only keep the generated tokens
                 idx = output.find("{")
                 try:
@@ -112,6 +115,8 @@ class ComputeF1(WandbCallback):
                 gold_references.append(refs.references)
 
                 generation_table.add_data(output, label)
+            if i == 24:
+                break
 
         f1 = self.f1.compute_macro_average(
             predicted_references, gold_references, show_progress=False
@@ -184,14 +189,14 @@ def train(
     # Configure training arguments
     training_args = SFTConfig(
         output_dir="test_finetune",  # Directory to save the model
-        num_train_epochs=1,  # Number of training epochs
+        num_train_epochs=2,  # Number of training epochs
         per_device_train_batch_size=1,  # Batch size for training
-        per_device_eval_batch_size=2,  # Batch size for evaluation
-        # gradient_accumulation_steps=1,  # Steps to accumulate gradients
+        per_device_eval_batch_size=1,  # Batch size for evaluation
+        gradient_accumulation_steps=4,  # Steps to accumulate gradients
         learning_rate=1e-5,  # Learning rate for training
         lr_scheduler_type="constant",  # Type of learning rate scheduler
-        logging_steps=1,  # Steps interval for logging
-        eval_steps=1,  # Steps interval for evaluation
+        logging_steps=10,  # Steps interval for logging
+        eval_steps=100,  # Steps interval for evaluation
         eval_strategy="steps",  # Strategy for evaluation
         # save_strategy="steps",  # Strategy for saving the model
         # save_steps=20,  # Steps interval for saving
@@ -204,6 +209,7 @@ def train(
             "use_reentrant": False
         },  # Options for gradient checkpointing
         # eval_accumulation_steps=1,
+        dataloader_num_workers=4,
     )
 
     # allow for proper loading of images during collation
@@ -221,10 +227,6 @@ def train(
     # )
     # get_peft_model(model, peft_config).print_trainable_parameters()
 
-    # def preprocess_logits_for_metrics(logits, labels):
-    #     # This function is used to preprocess logits for metrics computation
-    #     return logits[0].argmax(axis=-1)
-
     # Create the data collator
     data_collator = CollateFn(
         processor=processor,
@@ -241,9 +243,7 @@ def train(
         train_dataset=train_data,
         eval_dataset=valid_data,
         processing_class=processor.tokenizer,
-        # compute_metrics=ComputeF1(processor.tokenizer),
         # peft_config=peft_config,
-        # preprocess_logits_for_metrics=preprocess_logits_for_metrics
         callbacks=[ComputeF1()],
     )
 
@@ -257,9 +257,9 @@ if __name__ == "__main__":
     data_path = Path("./data/data.json")
     data = Data.model_validate_json(data_path.read_text())
     examples = data.examples
-    # examples = [ex for ex in data.examples if ex.refs]
-    train_data, valid_data = data.examples[:2], data.examples[2:4]
+    examples = [ex for ex in data.examples if ex.refs]
+    train_data, valid_data = examples[:-200], examples[-200:]
 
-    # # pdfs_dir = Path("/u/dcfidalgo/projects/cupido/data/PLOS_1000")
-    pdfs_dir = Path("/home/david/mpcdf/mplhlt/cupido/data/PLOS_1000")
-    train(train_data, valid_data, pdfs_dir, is_mock_model=True, use_flashattn=False)
+    pdfs_dir = Path("/u/dcfidalgo/projects/cupido/data/PLOS_1000")
+    # pdfs_dir = Path("/home/david/mpcdf/mplhlt/cupido/data/PLOS_1000")
+    train(train_data, valid_data, pdfs_dir, is_mock_model=False, use_flashattn=True)
