@@ -78,7 +78,7 @@ class CollateFn:
 
 
 class ComputeF1(WandbCallback):
-    def __init__(self, max_new_tokens: int = 1000):
+    def __init__(self, max_new_tokens: int = 10000):
         super().__init__()
         self.max_new_tokens = max_new_tokens
         self.refs_model = SchemaPrompter().schema_model
@@ -103,7 +103,8 @@ class ComputeF1(WandbCallback):
 
             # Generate output
             idx = (batch["labels"][0] != -100).nonzero()[0][0].item()
-            batch["input_ids"] = batch["input_ids"][:, idx + 1 :]
+            batch["input_ids"] = batch["input_ids"][:, :idx + 1]
+            batch["attention_mask"] = batch["attention_mask"][:, :idx + 1]
             with torch.inference_mode():
                 output = model.generate(**batch, max_new_tokens=self.max_new_tokens)
             output = tokenizer.decode(
@@ -200,7 +201,7 @@ def train(
 
     # Configure training arguments
     training_args = SFTConfig(
-        output_dir="test_finetune",  # Directory to save the model
+        output_dir="finetune_lora",  # Directory to save the model
         num_train_epochs=2,  # Number of training epochs
         per_device_train_batch_size=1,  # Batch size for training
         per_device_eval_batch_size=1,  # Batch size for evaluation
@@ -228,15 +229,15 @@ def train(
     training_args.remove_unused_columns = False
     training_args.dataset_kwargs = {"skip_prepare_dataset": True}
 
-    # from peft import LoraConfig, get_peft_model
-    # peft_config = LoraConfig(
-    #     lora_alpha=16,  # Scaling factor for LoRA
-    #     lora_dropout=0.05,  # Dropout rate for LoRA layers
-    #     r=8,  # Rank of the low-rank decomposition
-    #     bias="none",  # Bias handling in LoRA layers
-    #     target_modules=["q_proj", "v_proj"],  # Target modules for LoRA
-    #     task_type="CAUSAL_LM",  # Task type for the model
-    # )
+    from peft import LoraConfig, get_peft_model
+    peft_config = LoraConfig(
+        lora_alpha=16,  # Scaling factor for LoRA
+        lora_dropout=0.05,  # Dropout rate for LoRA layers
+        r=8,  # Rank of the low-rank decomposition
+        bias="none",  # Bias handling in LoRA layers
+        target_modules=["q_proj", "v_proj"],  # Target modules for LoRA
+        task_type="CAUSAL_LM",  # Task type for the model
+    )
     # get_peft_model(model, peft_config).print_trainable_parameters()
 
     # Create the data collator
@@ -255,8 +256,8 @@ def train(
         train_dataset=train_data,
         eval_dataset=valid_data,
         processing_class=processor.tokenizer,
-        # peft_config=peft_config,
-        callbacks=[ComputeF1()],
+        peft_config=peft_config,
+        #callbacks=[ComputeF1()],
     )
 
     trainer.train()
