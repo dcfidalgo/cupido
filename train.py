@@ -1,5 +1,5 @@
 from transformers import AutoProcessor, AutoModelForVision2Seq, AutoConfig
-from trl import SFTConfig, SFTTrainer
+from trl import SFTTrainer
 import torch
 from typing import List, Dict
 from data import Example, to_messages
@@ -10,6 +10,8 @@ from llamore import SchemaPrompter, F1
 from transformers.integrations import WandbCallback
 import wandb
 from tqdm.auto import tqdm
+from config import Cfg
+
 
 
 class CollateFn:
@@ -141,13 +143,11 @@ class ComputeF1(WandbCallback):
 def train(
     train_data: List[Example],
     valid_data: List[Example],
-    input_dir: Path,
-    is_mock_model: bool = False,
-    use_flashattn: bool = True,
+    cfg: Cfg,
 ):
-    model_name, config = "numind/NuExtract-2.0-2B", None
+    model_name, config = cfg.model, None
 
-    if is_mock_model:
+    if cfg.is_mock_model:
         model_name = "HuggingFaceTB/SmolVLM-256M-Instruct"
         # make model really small for testing
         config = AutoConfig.from_pretrained(model_name)
@@ -190,62 +190,29 @@ def train(
         model_name,
         trust_remote_code=True,
         torch_dtype=torch.bfloat16,
-        attn_implementation="flash_attention_2" if use_flashattn else "eager",
+        attn_implementation="flash_attention_2" if cfg.use_flashattn else "eager",
         device_map="auto",
         # use_cache=False, # for training,
         config=config,
-        ignore_mismatched_sizes=is_mock_model,
+        ignore_mismatched_sizes=cfg.is_mock_model,
         # quantization_config=bnb_config
     )
     # print("PARAMETERS:", sum(p.numel() for p in model.parameters())/1e6, "M")
 
-    # Configure training arguments
-    training_args = SFTConfig(
-        output_dir="finetune_lora",  # Directory to save the model
-        num_train_epochs=2,  # Number of training epochs
-        per_device_train_batch_size=1,  # Batch size for training
-        per_device_eval_batch_size=1,  # Batch size for evaluation
-        gradient_accumulation_steps=4,  # Steps to accumulate gradients
-        learning_rate=1e-5,  # Learning rate for training
-        lr_scheduler_type="constant",  # Type of learning rate scheduler
-        logging_steps=10,  # Steps interval for logging
-        eval_steps=100,  # Steps interval for evaluation
-        eval_strategy="steps",  # Strategy for evaluation
-        # save_strategy="steps",  # Strategy for saving the model
-        # save_steps=20,  # Steps interval for saving
-        bf16=True,  # Use bfloat16 precision
-        max_grad_norm=0.3,  # Maximum norm for gradient clipping
-        warmup_ratio=0.03,  # Ratio of total steps for warmup
-        report_to="wandb",  # Reporting tool for tracking metrics
-        gradient_checkpointing=True,  # Enable gradient checkpointing for memory efficiency
-        gradient_checkpointing_kwargs={
-            "use_reentrant": False
-        },  # Options for gradient checkpointing
-        # eval_accumulation_steps=1,
-        dataloader_num_workers=4,
-    )
+    training_args = cfg.sft_cfg
 
     # allow for proper loading of images during collation
     training_args.remove_unused_columns = False
     training_args.dataset_kwargs = {"skip_prepare_dataset": True}
 
-    from peft import LoraConfig, get_peft_model
-    peft_config = LoraConfig(
-        lora_alpha=16,  # Scaling factor for LoRA
-        lora_dropout=0.05,  # Dropout rate for LoRA layers
-        r=8,  # Rank of the low-rank decomposition
-        bias="none",  # Bias handling in LoRA layers
-        target_modules=["q_proj", "v_proj"],  # Target modules for LoRA
-        task_type="CAUSAL_LM",  # Task type for the model
-    )
-    # get_peft_model(model, peft_config).print_trainable_parameters()
+    # get_peft_model(model, cfg.lora_cfg).print_trainable_parameters()
 
     # Create the data collator
     data_collator = CollateFn(
         processor=processor,
-        input_dir=input_dir,
-        dpi=100 if not is_mock_model else 1,
-        include_template=True if not is_mock_model else False,
+        input_dir=cfg.pdf_dir,
+        dpi=100 if not cfg.is_mock_model else 1,
+        include_template=True if not cfg.is_mock_model else False,
         exclude_defaults=True,
     )
 
@@ -256,7 +223,7 @@ def train(
         train_dataset=train_data,
         eval_dataset=valid_data,
         processing_class=processor.tokenizer,
-        peft_config=peft_config,
+        peft_config=cfg.lora_cfg if cfg.use_lora else None,
         #callbacks=[ComputeF1()],
     )
 
@@ -273,6 +240,4 @@ if __name__ == "__main__":
     examples = [ex for ex in data.examples if ex.refs]
     train_data, valid_data = examples[:-200], examples[-200:]
 
-    pdfs_dir = Path("/u/dcfidalgo/projects/cupido/data/PLOS_1000")
-    # pdfs_dir = Path("/home/david/mpcdf/mplhlt/cupido/data/PLOS_1000")
-    train(train_data, valid_data, pdfs_dir, is_mock_model=False, use_flashattn=True)
+    train(train_data, valid_data, cfg=Cfg())

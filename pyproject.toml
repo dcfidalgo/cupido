@@ -11,6 +11,7 @@ dependencies = [
     "llamore>=0.2.0",
     "peft>=0.16.0",
     "pillow>=11.3.0",
+    "pydantic-settings>=2.10.1",
     "pymupdf>=1.26.3",
     "qwen-vl-utils>=0.0.11",
     "torchvision>=0.22.1",
