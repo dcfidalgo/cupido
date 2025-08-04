@@ -224,7 +224,7 @@ def train(
         eval_dataset=valid_data,
         processing_class=processor.tokenizer,
         peft_config=cfg.lora_cfg if cfg.use_lora else None,
-        #callbacks=[ComputeF1()],
+        callbacks=[ComputeF1()] if cfg.use_f1_callback else None,
     )
 
     trainer.train()

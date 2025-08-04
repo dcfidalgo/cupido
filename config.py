@@ -33,6 +33,7 @@ class Cfg(BaseSettings):
     use_flashattn: bool = True
     use_lora: bool = True
     lora_cfg: LoraConfig = LoraConfig()
+    use_f1_callback: bool = False
 
     sft_cfg: SFTConfig = SFTConfig()
 
