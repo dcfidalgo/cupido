@@ -61,3 +61,5 @@ def extract_page(
     doc.close()
 
     return png_path
+
+
