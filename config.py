@@ -36,6 +36,7 @@ class Cfg(BaseSettings):
     use_lora: bool = True
     lora_cfg: LoraConfig = LoraConfig()
     use_f1_callback: bool = False
+    nr_for_f1_callback: int = 25
 
     sft_cfg: SFTConfig = SFTConfig()
 

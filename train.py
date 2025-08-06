@@ -1,6 +1,6 @@
 import tempfile
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 import torch
 from llamore import F1, SchemaPrompter
@@ -79,7 +79,7 @@ def train(
         eval_dataset=valid_data,
         processing_class=processor.tokenizer,
         peft_config=cfg.lora_cfg if cfg.use_lora else None,
-        callbacks=[ComputeF1()] if cfg.use_f1_callback else None,
+        callbacks=[ComputeF1(n=cfg.nr_for_f1_callback)] if cfg.use_f1_callback else None,
     )
 
     trainer.train()
@@ -176,11 +176,12 @@ class CollateFn:
 
 
 class ComputeF1(WandbCallback):
-    def __init__(self, max_new_tokens: int = 10000):
+    def __init__(self, max_new_tokens: int = 10000, n: Optional[int] = None):
         super().__init__()
         self.max_new_tokens = max_new_tokens
         self.refs_model = SchemaPrompter().schema_model
         self.f1 = F1()
+        self.n = n
 
     def on_evaluate(self, args, state, control, **kwargs):
         model, tokenizer = kwargs["model"], kwargs["processing_class"]
@@ -188,7 +189,7 @@ class ComputeF1(WandbCallback):
         generation_table = wandb.Table(columns=["generation", "label"])
 
         gold_references, predicted_references = [], []
-        total = 25  # len(kwargs["eval_dataloader"])
+        total = len(kwargs["eval_dataloader"]) if self.n is None else self.n
         for i, batch in tqdm(
             enumerate(kwargs["eval_dataloader"]),
             total=total,
