@@ -1,9 +1,12 @@
 dpi = 100
-is_mock_model = true
-use_flashattn = false
+is_mock_model = false
+use_flashattn = true
+model = "HuggingFaceTB/SmolVLM-256M-Instruct"
+use_f1_callback = true
+use_lora = false
 
 [sft_cfg]
-output_dir="finetune_lora"  # Directory to save the model
+output_dir="finetune_smol256"  # Directory to save the model
 num_train_epochs=2  # Number of training epochs
 per_device_train_batch_size=1  # Batch size for training
 per_device_eval_batch_size=1  # Batch size for evaluation

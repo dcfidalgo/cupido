@@ -7,7 +7,7 @@ requires-python = ">=3.10"
 dependencies = [
     "bitsandbytes>=0.46.1",
     "datasets>=4.0.0",
-    "flash-attn>=2.8.1",
+    "flash-attn==2.8.2",
     "llamore>=0.2.0",
     "peft>=0.16.0",
     "pillow>=11.3.0",
