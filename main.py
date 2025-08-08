@@ -1,16 +1,9 @@
 from pathlib import Path
-from typing import List, Tuple
-import random
 
 from train import train
-from data import Data, Example
+from data import Data, split
 from config import Cfg
 
-
-def split(examples: List[Example], valid_size: int = 200, seed: int = 42) -> Tuple[List[Example], List[Example]]:
-    random.seed(seed)
-    random.shuffle(examples)
-    return examples[:-valid_size], examples[-valid_size:]
 
 if __name__ == "__main__":
     cfg = Cfg()

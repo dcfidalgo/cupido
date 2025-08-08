@@ -530,6 +530,7 @@ dependencies = [
     { name = "bitsandbytes" },
     { name = "datasets" },
     { name = "flash-attn" },
+    { name = "grobid-client-python" },
     { name = "llamore" },
     { name = "peft" },
     { name = "pillow" },
@@ -553,6 +554,7 @@ requires-dist = [
     { name = "bitsandbytes", specifier = ">=0.46.1" },
     { name = "datasets", specifier = ">=4.0.0" },
     { name = "flash-attn", specifier = "==2.8.2" },
+    { name = "grobid-client-python", specifier = ">=0.0.11" },
     { name = "llamore", specifier = ">=0.2.0" },
     { name = "peft", specifier = ">=0.16.0" },
     { name = "pillow", specifier = ">=11.3.0" },
@@ -887,6 +889,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/23/f1/039bb08df4670e204c55b5da0b2fa5228dff3346bda01389a86b300f6f58/google_genai-1.28.0.tar.gz", hash = "sha256:e93053c02e616842679ba5ecce5b99db8c0ca6310623c55ff6245b5b1d293138", size = 221029 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3f/ea/b704df3b348d3ae3572b0db5b52438fa426900b0830cff664107abfdba69/google_genai-1.28.0-py3-none-any.whl", hash = "sha256:7fd506799005cc87d3c5704a2eb5a2cb020d45b4d216a802e606700308f7f2f3", size = 219384 },
+]
+
+[[package]]
+name = "grobid-client-python"
+version = "0.0.11"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0d/2f/b465a070a118aefaf5c4f6141c8d4f6e1adc33155be516ea77270efae2e9/grobid_client_python-0.0.11.tar.gz", hash = "sha256:00d3dd3e98d8fc7593f42d0383b673bc05a9c0ced170491441ba5c444ddfa4a8", size = 1194402 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/28/0f/a70e75a7960c97cdd0875329af736774e9743333c17f2e17a7a500241769/grobid_client_python-0.0.11-py3-none-any.whl", hash = "sha256:3dab9a6ce677fce225bb5fc8049bf3d2902bfd7a739766117f03a9fa154237a3", size = 15492 },
 ]
 
 [[package]]

@@ -1,8 +1,10 @@
-from pydantic import BaseModel
-from typing import List, Optional
-from llamore import Reference, SchemaPrompter
+import random
 from pathlib import Path
+from typing import List, Optional, Tuple, Union
+
 import pymupdf
+from llamore import Reference, SchemaPrompter
+from pydantic import BaseModel
 
 
 class Example(BaseModel):
@@ -63,3 +65,29 @@ def extract_page(
     return png_path
 
 
+def export_page_as_pdf(
+    file: Union[str, Path], page: int, output: Union[str, Path]
+) -> Path:
+    file = Path(file)
+    doc = pymupdf.open(file)
+    new_doc = pymupdf.open()
+    new_doc.insert_pdf(doc, from_page=page - 1, to_page=page - 1)
+
+    output = Path(output)
+    new_doc.save(output)
+
+    return output
+
+
+def split(
+    examples: List[Example],
+    only_with_refs: bool = False,
+    valid_size: int = 200,
+    seed: int = 42,
+) -> Tuple[List[Example], List[Example]]:
+    if only_with_refs:
+        examples = [ex for ex in examples if ex.refs]
+
+    random.seed(seed)
+    random.shuffle(examples)
+    return examples[:-valid_size], examples[-valid_size:]

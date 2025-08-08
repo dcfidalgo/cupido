@@ -9,5 +9,8 @@ wheels/
 # Virtual environments
 .venv
 
+# dotenv file
+.env
+
 # data files
 data/PLOS_1000
