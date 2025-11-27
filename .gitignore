@@ -12,5 +12,8 @@ wheels/
 # dotenv file
 .env
 
+wandb/
+
 # data files
 data/
+

@@ -3,13 +3,15 @@ from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
 import pymupdf
-from llamore import Reference, SchemaPrompter
+from llamore import Reference, SchemaPrompter, References
 from pydantic import BaseModel
+
+import datasets
 
 
 class Example(BaseModel):
     file: str
-    page: int
+    page: Optional[int] = None
     refs: Optional[List[Reference]] = None
 
 
@@ -40,24 +42,32 @@ def to_messages(
         {"role": "system", "content": SchemaPrompter().system_prompt()},
         {"role": "user", "content": [{"type": "text", "text": text}] + [image]},
     ]
-    label = (
-        SchemaPrompter()
-        .schema_model(references=example.refs or [])
-        .model_dump_json(indent=indent, exclude_defaults=exclude_defaults)
-    )
-    messages.append({"role": "assistant", "content": [{"type": "text", "text": label}]})
+    if example.refs is not None:
+        label = (
+            SchemaPrompter()
+            .schema_model(references=example.refs)
+            .model_dump_json(indent=indent, exclude_defaults=exclude_defaults)
+        )
+        messages.append({"role": "assistant", "content": [{"type": "text", "text": label}]})
 
     return messages
 
 
 def extract_page(
-    file: str, page: int, input_dir: Path, tmp_dir: Path, dpi: int = 100
+    file: str, page: int | None, input_dir: Path, tmp_dir: Path, dpi: int = 100
 ) -> Path:
-    pdf_file = input_dir / file / f"{file}.pdf"
+    if page is None:
+        pdf_file = input_dir / file
+        png_path = tmp_dir / f"{Path(file).stem}.png"
+        page = 1
+    else:
+        pdf_file = input_dir / file / f"{file}.pdf"
+        png_path = tmp_dir / f"{file}_{page}.png"
+
     if not pdf_file.exists():
         raise FileNotFoundError(f"PDF file not found: {pdf_file}")
 
-    png_path = tmp_dir / f"{file}_{page}.png"
+
     doc = pymupdf.open(pdf_file)
     doc[page - 1].get_pixmap(dpi=dpi).save(png_path)
     doc.close()
@@ -91,3 +101,20 @@ def split(
     random.seed(seed)
     random.shuffle(examples)
     return examples[:-valid_size], examples[-valid_size:]
+
+
+def dataset_to_examples(dataset: datasets.Dataset, pdf_output_path: str | Path) -> Data:
+    examples, pdf_output_path = [], Path(pdf_output_path)
+    for row in dataset:
+        output_path = pdf_output_path / row["pdf"]["path"]
+        if not output_path.exists():
+            output_path.write_bytes(row["pdf"]["bytes"])
+        
+        file = row["pdf"]["path"]
+        refs = None
+        if row["references"]:
+            refs = References.from_xml(xml_str=row["references"])
+
+        examples.append(Example(file=file, refs=refs))
+
+    return Data(examples=examples)
