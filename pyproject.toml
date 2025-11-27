@@ -19,6 +19,7 @@ dependencies = [
     "transformers>=4.53.1",
     "trl>=0.19.1",
     "wandb>=0.21.0",
+    "flash-attn==2.8.2",
 ]
 
 [dependency-groups]
