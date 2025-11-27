@@ -27,7 +27,7 @@ class Cfg(BaseSettings):
     GEMINI_API_KEY: str = Field(description="The API key for Gemini.", default="")
 
     model: str = "numind/NuExtract-2.0-2B"
-    data: str = "./data/data.json"
+    data: None | str = None
     pdf_dir: str = "data/PLOS_1000"
     dpi: int = 100
     only_non_empty_examples: bool = True
