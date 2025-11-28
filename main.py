@@ -23,5 +23,4 @@ if __name__ == "__main__":
 
     train_data, valid_data = split(examples)
 
-    print(cfg.model)
     train(train_data, valid_data, cfg=cfg)
