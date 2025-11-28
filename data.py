@@ -125,6 +125,8 @@ def dataset_to_examples(dataset: datasets.Dataset, pdf_output_path: str | Path) 
         - References are parsed from XML format if present in the dataset row
     """
     examples, pdf_output_path = [], Path(pdf_output_path)
+    pdf_output_path.mkdir(parents=True, exist_ok=True)
+
     for row in track(dataset, description="Converting dataset and exporting PDFs"):
         output_path = pdf_output_path / row["pdf"]["path"]
         if not output_path.exists():
