@@ -35,7 +35,7 @@ class Cfg(BaseSettings):
         model (str): The model identifier to use. Defaults to "numind/NuExtract-2.0-2B".
         data (None | str): Path to the data source. If None, we will download 
             the `llamore/plos_1000_single_page` dataset and export it to `pdf_dir`.
-        pdf_dir (str): Directory containing PDF files. Defaults to "data/plos_1000_single_page".
+        pdf_dir (str): Directory containing PDF files. Defaults to "data/plos_1000_single_page/pdfs".
         dpi (int): DPI resolution for processing. Defaults to 100.
         only_non_empty_examples (bool): Whether to use only non-empty examples. Defaults to True.
         is_mock_model (bool): Flag to use a mock model for testing. Defaults to False.
@@ -60,7 +60,7 @@ class Cfg(BaseSettings):
 
     model: str = "numind/NuExtract-2.0-2B"
     data: None | str = None
-    pdf_dir: str = "data/plos_1000_single_page"
+    pdf_dir: str = "data/plos_1000_single_page/pdfs"
     dpi: int = 100
     only_non_empty_examples: bool = True
     is_mock_model: bool = False
