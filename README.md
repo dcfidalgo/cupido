@@ -17,3 +17,7 @@ You can overwrite all configuration in the CLI (see `main.py --help`).
 
 If no `--data` is provided, it will download the `llamore/plos_1000_single_page` dataset from the HF hub.
 Make sure you are a member of the llamore organization, since this dataset is private.
+
+## Reproduce
+
+Run the `train.slurm` script on Viper, with either `cupido_2B.toml` or `cupido_8B.toml`.
