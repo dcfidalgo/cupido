@@ -8,6 +8,8 @@ from pydantic import BaseModel
 
 import datasets
 
+from rich.progress import track
+
 
 class Example(BaseModel):
     file: str
@@ -104,8 +106,26 @@ def split(
 
 
 def dataset_to_examples(dataset: datasets.Dataset, pdf_output_path: str | Path) -> Data:
+    """
+    Convert a Hugging Face dataset to a Data object containing examples.
+
+    Args:
+        dataset (datasets.Dataset): A Hugging Face dataset containing PDF files and references.
+            Each row should have:
+            - 'pdf': A dictionary with 'path' and 'bytes' keys
+            - 'references': Optional XML string of references
+        pdf_output_path (str | Path): Directory path where the single-page PDF files will be saved.
+
+    Returns:
+        Data: A Data object containing a list of Example instances, where each Example
+            has a file path and optional References object.
+
+    Note:
+        - PDF files are only written to disk if they don't already exist at the target location
+        - References are parsed from XML format if present in the dataset row
+    """
     examples, pdf_output_path = [], Path(pdf_output_path)
-    for row in dataset:
+    for row in track(dataset, description="Converting dataset and exporting PDFs"):
         output_path = pdf_output_path / row["pdf"]["path"]
         if not output_path.exists():
             output_path.write_bytes(row["pdf"]["bytes"])
