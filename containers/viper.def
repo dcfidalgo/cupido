@@ -1,0 +1,7 @@
+BootStrap: docker
+From: rocm/pytorch:rocm6.4.2_ubuntu24.04_py3.12_pytorch_release_2.6.0
+
+%post
+pip install llamore==0.2.0 peft==0.16.0 pillow==11.3.0 pydantic-settings==2.10.1 pymupdf==1.26.3 qwen-vl-utils==0.0.11 transformers==4.53.1 trl==0.19.1 wandb==0.21.0
+pip install flash-attn --no-build-isolation
+
