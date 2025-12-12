@@ -28,3 +28,6 @@ dev = [
     "ipywidgets>=8.1.7",
     "jupyterlab>=4.4.4",
 ]
+
+[tool.uv.extra-build-dependencies]
+flash-attn = ["torch==2.6.0"]
